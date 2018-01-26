@@ -1,5 +1,6 @@
 //Proof of concept for simple hierarchical context map for a DSL
 //Based on code from my jenkins dsl project
+//May need refactoring for real world use
 
 interface ContextLookup {
     Optional lookup(String key)

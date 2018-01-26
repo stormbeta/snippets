@@ -1,4 +1,4 @@
-# Useful features of jq
+# jq cheat sheet and snippets
 
 ## Merging and diffing arrays
 
@@ -8,8 +8,8 @@ a.json: `[1, {a: 1}, "foo", {a: 2}, {b: 1}]`
 b.json: `[{a: 1}, "bar", 1, 2]`
 
 ```
-# Merge arrays
-$ jq --slurp --compact-output '.[0] + .[1] | unique' a.json b.json
+# Merge arrays (slurp, compact-output)
+$ jq -s -c '.[0] + .[1] | unique' a.json b.json
 [1,2,"bar","foo",{"a":1},{"a":2},{"b":1}]
 
 # Intersect arrays
@@ -42,7 +42,7 @@ Given JSON object in nested.json
 ```
 
 ```
-$ jq '.. | .target? | select(. != null)' nested.json | jq --slurp --compact-output
+$ jq '.. | .target? | select(. != null)' nested.json | jq -s -c
 ["value1","value2"]
 ```
 
@@ -63,6 +63,30 @@ Given file embedded.json:
 
 ```
 # NOTE: you can use 'tostring' for the reverse operation
-$ jq --compact-output '.embedded | fromjson'
+$ jq -c '.embedded | fromjson'
 {"hello":"world"}
+```
+
+## Convert between shell-style lists and JSON
+
+Other CLI tools don't necessarily understand JSON, so it's useful to convert back and forth
+
+Given a file 'list':
+
+```
+one
+two
+three
+```
+
+```
+# -R / --raw-input quotes the input, -s / --slurp turns it into a JSON array
+$ cat list | jq -R . | jq -s -c .
+["one","two","three"]
+
+# -r / --raw-output to consume the quotes
+$ echo '["one","two","three"]' | jq -r '.[]'
+one
+two
+three
 ```
