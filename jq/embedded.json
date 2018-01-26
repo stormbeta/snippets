@@ -1,0 +1,6 @@
+{
+  "embedded": "{\"hello\":\"world\"}",
+  "normal": {
+    "hello": "world"
+  }
+}
