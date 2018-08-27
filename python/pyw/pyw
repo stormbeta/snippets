@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+
+#NOTE: This only manages virtualenvs, not the python runtime itself
+
+#Version 0.6.0
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  if [[ "$1" == "update" ]]; then
+    set -o pipefail
+    cp $0 /tmp/pyw.backup
+    #git archive --remote=ssh:///pyw.git "${2:-master}" pyw | tar -xO > "$0"
+    if [[ $? -ne 0 ]]; then
+      echo "pyw update failed!" 1>&2
+      cp /tmp/pyw.backup $0
+    else
+      echo "pyw update succeeded!" 1>&2
+    fi
+    exit 0
+  else
+    cat 1>&2 <<- EOM
+Usage:
+  source $0 [PROJECT]    Activate project python environment
+  $0 update [VERSION]    Update script from parent git repo
+
+  NOTE: Name this script pywVERSION to use a specific python version
+        Otherwise it uses the system default, which is usually 2.7
+EOM
+    exit 0
+  fi
+fi
+
+#Reset previous environment, if any
+deactivate 1>&2 &>/dev/null || true
+
+#Default to system python, but script name can indicate explicit version
+if [[ "${BASH_SOURCE[0]}" != 'pyw' ]]; then
+  PY_VERSION="$(echo "${BASH_SOURCE[0]}" | sed 's/^pyw//')"
+else
+  PY_VERSION="$(python --version 2>&1 | grep -Eo '[0-9]\.[0-9]+')"
+fi
+
+echo "Python version to use: ${PY_VERSION}"
+
+if [[ -n "$1" ]]; then
+  PYW_PROJECT="$1"
+else
+  PYW_PROJECT="$(basename $(pwd))"
+fi
+
+echo "virtualenv project: ${PYW_PROJECT}" 1>&2
+
+#TODO: Is there an official virtualenv variable for this?
+if [[ -n "${WORKDIR_OVERRIDE}" ]]; then
+  PYW_WORKDIR="${WORKDIR_OVERRIDE}/${PYW_PROJECT}"
+else
+  PYW_WORKDIR="${HOME}/.virtualenvs/${PYW_PROJECT}"
+fi
+
+PYW_INSTALL_LOG="./pip_install.log"
+
+function __pip-min-version {
+  #pip version is at least X
+  [[ "$(pip --version | grep -Eo '[0-9]' | head -n1)" -ge $1 ]]
+}
+
+function pip-install {
+  if __pip-min-version 6; then
+    #Disable frivolous and obnoxious version warning introduced in pip 6.x
+    pip --disable-pip-version-check --log ${PYW_INSTALL_LOG} install $@
+  else
+    pip --log ${PYW_INSTALL_LOG} install $@
+  fi
+}
+
+export PIP_CONFIG_FILE="${PYW_WORKDIR}/pip.conf"
+
+if [[ -x "${PYW_WORKDIR}/bin/python" ]]; then
+  if ! ${PYW_WORKDIR}/bin/python --version 2>&1 | grep "^Python ${PY_VERSION}"; then
+    echo "Current virtualenv at ${PYW_WORKDIR} doesn't match requested python version!" 1>&2
+    echo "Wiping out virtualenv and recreating..."
+    rm -rf "${PYW_WORKDIR}"
+  fi
+fi
+
+# This intentionally overrides pipenv's default bevhavior
+# By default, pipenv creates a hashed virtualenv dir which is unnecessary and obnoxious
+if ! source "${PYW_WORKDIR}/bin/activate" 2>/dev/null; then
+  if ! virtualenv "${PYW_WORKDIR}" --python="python${PY_VERSION}"; then
+    echo "Python ${PY_VERSION} not found or had errors - aborting!" 1>&2
+    return 3
+  fi
+  source "${PYW_WORKDIR}/bin/activate"
+fi
+
+if [[ -f Pipfile ]]; then
+  # TODO: Warn if pipenv not found
+  pipenv install
+else
+
+  #TODO: Use relative paths in case sourced from parent or subdirectory
+  if [[ -f requirements.txt ]]; then
+    echo "Running pip install... (output in ${PYW_INSTALL_LOG})" 1>&2
+    #Can't use exit in a sourced file as it will terminate the outer shell
+    pip-install --requirement requirements.txt --quiet || return 1
+    echo "requirements.txt installed successfully!" 1>&2
+  fi
+fi
