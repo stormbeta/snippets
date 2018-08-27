@@ -2,7 +2,7 @@
 
 #NOTE: This only manages virtualenvs, not the python runtime itself
 
-#Version 0.6.0
+#Version 0.6.1
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   if [[ "$1" == "update" ]]; then
@@ -94,7 +94,7 @@ fi
 
 if [[ -f Pipfile ]]; then
   # TODO: Warn if pipenv not found
-  pipenv install
+  pipenv install && pipenv install --dev
 else
 
   #TODO: Use relative paths in case sourced from parent or subdirectory
