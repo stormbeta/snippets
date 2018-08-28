@@ -2,7 +2,7 @@
 
 #NOTE: This only manages virtualenvs, not the python runtime itself
 
-#Version 0.6.1
+#Version 0.6.2
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   if [[ "$1" == "update" ]]; then
@@ -96,12 +96,14 @@ if [[ -f Pipfile ]]; then
   # TODO: Warn if pipenv not found
   pipenv install && pipenv install --dev
 else
-
   #TODO: Use relative paths in case sourced from parent or subdirectory
   if [[ -f requirements.txt ]]; then
     echo "Running pip install... (output in ${PYW_INSTALL_LOG})" 1>&2
     #Can't use exit in a sourced file as it will terminate the outer shell
     pip-install --requirement requirements.txt --quiet || return 1
+    if [[ -f test_requirements.txt ]]; then
+      pip-install --requirement test_requirements.txt --quiet || return 1
+    fi
     echo "requirements.txt installed successfully!" 1>&2
   fi
 fi
