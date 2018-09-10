@@ -62,6 +62,7 @@ function version-override {
 if [[ -n "$version" ]] && brew list --versions "$formula" | grep "$version" &>/dev/null; then
   echo "Version ${version} already installed"
   brew switch "$formula" "$version"
+  brew pin "$formula"
 else
   if [[ -z "$commit" ]]; then
     echo "Searching for commit that contains version..."
