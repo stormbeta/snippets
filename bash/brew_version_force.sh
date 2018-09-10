@@ -4,10 +4,7 @@
 
 set -eo pipefail
 
-formula="$1"
-shift 1
-
-while getopts ":cvh" opt; do
+while getopts "cv:h" opt; do
   case ${opt} in
     h)
       echo "Usage: ./${0} NAME [-v VERSION|-c COMMIT]"
@@ -26,6 +23,7 @@ while getopts ":cvh" opt; do
   esac
 done
 shift $((OPTIND -1))
+formula="$1"
 
 function find-commit {
   local formula="$1"
@@ -45,7 +43,6 @@ function version-override {
   wget "https://raw.githubusercontent.com/Homebrew/homebrew-core/${commit}/Formula/kubernetes-cli.rb" -O "$formula_path"
   brew uninstall "$formula" --ignore-dependencies
   brew install "$formula"
-  brew link "$formula"
   brew pin "$formula"
   git checkout -- "$formula_path"
   popd
