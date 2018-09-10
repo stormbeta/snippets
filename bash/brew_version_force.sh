@@ -4,10 +4,20 @@
 
 set -eo pipefail
 
+function usage {
+  echo "Usage: ${0} [-v VERSION|-c COMMIT] NAME"
+  exit 0
+}
+
+if [[ "$#" -lt 2 ]]; then
+  usage
+  exit 0
+fi
+
 while getopts "cv:h" opt; do
   case ${opt} in
     h)
-      echo "Usage: ./${0} NAME [-v VERSION|-c COMMIT]"
+      usage
       exit 0
       ;;
     v)
