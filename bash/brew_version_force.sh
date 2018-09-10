@@ -28,19 +28,20 @@ formula="$1"
 function find-commit {
   local formula="$1"
   local version="$2"
-  pushd "$(brew --prefix)/Homebrew/Library/Taps/homebrew/homebrew-core"
+  pushd "$(brew --prefix)/Homebrew/Library/Taps/homebrew/homebrew-core" &>/dev/null
   formula_path="Formula/${formula}.rb"
-  result="$(git log --pretty=format:%H  --grep "${version}" -- "$formula_path" | head -n 1)"
-  git checkout "$result" -- "$formula_path"
-  popd
+  git log --pretty=format:%H  --grep "${version}" -- "$formula_path" | head -n 1
+  popd &>/dev/null
 }
 
 function version-override {
   local formula="$1"
   local commit="$2"
+  echo "Forcing formula ${formula} to ${commit}"
   pushd "$(brew --prefix)/Homebrew/Library/Taps/homebrew/homebrew-core"
   formula_path="Formula/${formula}.rb"
-  wget "https://raw.githubusercontent.com/Homebrew/homebrew-core/${commit}/Formula/kubernetes-cli.rb" -O "$formula_path"
+  git checkout "$commit" -- "$formula_path"
+  wget "https://raw.githubusercontent.com/Homebrew/homebrew-core/${commit}/Formula/${formula}.rb" -O "$formula_path"
   brew uninstall "$formula" --ignore-dependencies
   brew install "$formula"
   brew pin "$formula"
@@ -48,12 +49,14 @@ function version-override {
   popd
 }
 
-if brew list --versions "$formula" | grep "$version" &>/dev/null; then
+if [[ -n "$version" ]] && brew list --versions "$formula" | grep "$version" &>/dev/null; then
   echo "Version ${version} already installed"
   brew switch "$formula" "$version"
 else
   if [[ -z "$commit" ]]; then
-    commit="$(find-commit "$formula" "$commit")"
+    echo "Searching for commit that contains version..."
+    commit="$(find-commit "$formula" "$version")"
+    echo "Found ${commit}"
   fi
   version-override "$formula" "$commit"
 fi
