@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 
-# homebrew makes it a huge pain to pin a specific version if you don't already have it installed
-
 set -eo pipefail
 
 function usage {
@@ -44,6 +42,13 @@ function find-commit {
   popd &>/dev/null
 }
 
+function list-commits {
+  local formula="$1"
+  pushd "$(brew --prefix)/Homebrew/Library/Taps/homebrew/homebrew-core" &>/dev/null
+  formula_path="Formula/${formula}.rb"
+  git log --oneline -- "$formula_path" | head -n 10
+}
+
 function version-override {
   local formula="$1"
   local commit="$2"
@@ -67,6 +72,11 @@ else
   if [[ -z "$commit" ]]; then
     echo "Searching for commit that contains version..."
     commit="$(find-commit "$formula" "$version")"
+    if [[ -z "$commit" ]]; then
+      echo "Commit not found!"
+      list-commits "$formula"
+      exit 3
+    fi
     echo "Found ${commit}"
   fi
   version-override "$formula" "$commit"
