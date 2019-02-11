@@ -55,8 +55,11 @@ function version-override {
   echo "Forcing formula ${formula} to ${commit}"
   pushd "$(brew --prefix)/Homebrew/Library/Taps/homebrew/homebrew-core"
   formula_path="Formula/${formula}.rb"
+  # needed so that it doesn't overwrite our forced checkout when installing
+  brew update
   git checkout "$commit" -- "$formula_path"
   wget "https://raw.githubusercontent.com/Homebrew/homebrew-core/${commit}/Formula/${formula}.rb" -O "$formula_path"
+  brew unpin "$formula"
   brew uninstall "$formula" --ignore-dependencies
   brew install "$formula"
   brew pin "$formula"
