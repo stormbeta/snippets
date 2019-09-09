@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
-#NOTE: This only manages virtualenvs, not the python runtime itself
+# NOTE: This only manages virtualenvs, not the python runtime itself
 
-#Version 0.6.3
+# Version 0.6.4
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   if [[ "$1" == "update" ]]; then
@@ -11,7 +11,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     curl -sL https://raw.githubusercontent.com/stormbeta/snippets/master/python/pyw/pyw -o "$0" && chmod +x "$0"
     if [[ $? -ne 0 ]]; then
       echo "pyw update failed!" 1>&2
-      cp /tmp/pyw.backup $0
+      cp /tmp/pyw.backup "$0"
     else
       echo "pyw update succeeded!" 1>&2
     fi
@@ -93,17 +93,21 @@ if ! source "${PYW_WORKDIR}/bin/activate" 2>/dev/null; then
 fi
 
 if [[ -f Pipfile ]]; then
-  # TODO: Warn if pipenv not found
-  pipenv install && pipenv install --dev
-else
-  #TODO: Use relative paths in case sourced from parent or subdirectory
-  if [[ -f requirements.txt ]]; then
-    echo "Running pip install... (output in ${PYW_INSTALL_LOG})" 1>&2
-    #Can't use exit in a sourced file as it will terminate the outer shell
-    pip-install --requirement requirements.txt --quiet || return 1
-    if [[ -f test_requirements.txt ]]; then
-      pip-install --requirement test_requirements.txt --quiet || return 1
-    fi
-    echo "requirements.txt installed successfully!" 1>&2
+  if command -v pipenv &> /dev/null; then
+    pipenv install && pipenv install --dev
+    exit $?
+  else
+    echo "Pipfile found, but pipenv not installed - falling back to requirements.txt if present" 1>&2
   fi
+fi
+
+#TODO: Use relative paths in case sourced from parent or subdirectory
+if [[ -f requirements.txt ]]; then
+  echo "Running pip install... (output in ${PYW_INSTALL_LOG})" 1>&2
+  #Can't use exit in a sourced file as it will terminate the outer shell
+  pip-install --requirement requirements.txt --quiet || return 1
+  if [[ -f requirements_dev.txt ]]; then
+    pip-install --requirement requirements_dev.txt --quiet || return 1
+  fi
+  echo "requirements.txt installed successfully!" 1>&2
 fi
