@@ -2,13 +2,13 @@
 
 #NOTE: This only manages virtualenvs, not the python runtime itself
 
-#Version 0.6.2
+#Version 0.6.3
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   if [[ "$1" == "update" ]]; then
     set -o pipefail
-    cp $0 /tmp/pyw.backup
-    #git archive --remote=ssh:///pyw.git "${2:-master}" pyw | tar -xO > "$0"
+    cp "$0" /tmp/pyw.backup
+    curl -sL https://raw.githubusercontent.com/stormbeta/snippets/master/python/pyw/pyw -o "$0" && chmod +x "$0"
     if [[ $? -ne 0 ]]; then
       echo "pyw update failed!" 1>&2
       cp /tmp/pyw.backup $0
