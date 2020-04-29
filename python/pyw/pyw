@@ -2,7 +2,7 @@
 
 # NOTE: This only manages virtualenvs, not the python runtime itself
 
-# Version 0.6.4
+# Version 0.7.0
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   if [[ "$1" == "update" ]]; then
@@ -33,8 +33,10 @@ fi
 deactivate 1>&2 &>/dev/null || true
 
 #Default to system python, but script name can indicate explicit version
-if [[ "${BASH_SOURCE[0]}" != 'pyw' ]]; then
-  PY_VERSION="$(echo "${BASH_SOURCE[0]}" | sed 's/^pyw//')"
+pyw_name="$(basename "${BASH_SOURCE[0]}")"
+pyw_dir="$(dirname "${BASH_SOURCE[0]}")"
+if [[ "$pyw_name" != 'pyw' ]]; then
+  PY_VERSION="$(echo "$pyw_name" | sed 's/^pyw//')"
 else
   PY_VERSION="$(python --version 2>&1 | grep -Eo '[0-9]\.[0-9]+')"
 fi
@@ -44,7 +46,8 @@ echo "Python version to use: ${PY_VERSION}"
 if [[ -n "$1" ]]; then
   PYW_PROJECT="$1"
 else
-  PYW_PROJECT="$(basename $(pwd))"
+  # TODO: avoid readlink as it won't work on macOS out-of-the-box
+  PYW_PROJECT="$(basename "$(readlink -f "$pyw_dir")")"
 fi
 
 echo "virtualenv project: ${PYW_PROJECT}" 1>&2
