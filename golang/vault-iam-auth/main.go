@@ -66,6 +66,10 @@ func VaultLogin(role string, loginData map[string]interface{}) {
 }
 
 func main() {
+	if len(os.Args) < 3 {
+		fmt.Println("Usage: ./vault-iam-auth REGION VAULT_ROLE")
+		os.Exit(1)
+	}
 	region := os.Args[1]
 	role := os.Args[2]
 	loginData, _ := GenerateLoginData(region)
