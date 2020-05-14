@@ -1,0 +1,23 @@
+#!/usr/bin/env python3
+
+import hcl
+import sys
+import json
+import os
+
+if not os.isatty(0):
+  j = json.dumps(hcl.loads(sys.stdin.read()))
+  r, w = os.pipe()
+  if os.fork() == 0:
+    os.dup2(r, sys.stdin.fileno())
+    os.close(r)
+    os.close(w)
+    os.execvp("jq", sys.argv)
+  else:
+    os.close(r)
+    os.write(w, bytes(j, 'utf-8'))
+    os.close(w)
+    os.wait()
+else:
+  print("Only supports piping in via stdin for now")
+  sys.exit(2)
