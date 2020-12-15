@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+
+set -eo pipefail
+
+if [[ $# -lt 2 ]]; then
+  echo "Usage: $0 MINUTES TEXT..." 1>&2
+  exit 1
+fi
+
+readonly minutes="$1"
+shift 1
+readonly text="$*"
+
+if ! command -v alerter &>/dev/null; then
+  (
+    cd /usr/local/bin
+    curl -L --fail --silent \
+      https://github.com/vjeantet/alerter/releases/download/003/alerter_v003_darwin_amd64.zip \
+      | jar xv
+    chmod +x /usr/local/bin/alerter
+  )
+fi
+
+function timer {
+  local seconds=$(( 60*"${minutes}" ))
+  echo "Reminding in ${seconds} seconds: ${text}" 1>&2
+  sleep "${seconds}"
+  # TODO: change icon/buttons, add snooze button?
+  alerter -message "${text}" -title "Reminder" &>/dev/null
+}
+
+timer &
