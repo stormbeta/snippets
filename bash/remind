@@ -7,6 +7,11 @@ if [[ $# -lt 2 ]]; then
   exit 1
 fi
 
+if ! uname -a | grep -q Darwin; then
+  echo "This script only works with macOS" 1>&2
+  exit 2
+fi
+
 readonly minutes="$1"
 shift 1
 readonly text="$*"
