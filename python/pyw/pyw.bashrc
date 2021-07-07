@@ -38,3 +38,7 @@ function pyw {
       ;;
   esac
 }
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  pyw "$@"
+fi
