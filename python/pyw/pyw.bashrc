@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
 
+# Instructions:
+# Place in bashrc or in PATH as "pyw"
+# Run `pyw init` to create a sourceable pyw3 file in the current directory
+# Sourcing pyw3 will create or activate a virtualenv named after the project, complete with installed dependencies
+# Running plain `pyw` will let you choose among previously created virtualenvs (assumes you have fzf)
+
 function list-virtualenvs {
   (
     cd "${HOME}/.virtualenvs"
