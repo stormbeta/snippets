@@ -28,33 +28,38 @@ export new_tag="${nametag##*:}"
 
 log "Retagging ${old_name}:${old_tag} => ${new_name}:${new_tag}"
 
-old_ref="${old_registry}/${old_name}"
-arch_tags=''
+export old_ref="${old_registry}/${old_name}"
 manifests="$(docker manifest inspect "${old_ref}:${old_tag}")"
 mediaType="$(echo "$manifests" | jq -r .mediaType)"
 
 if [[ "$mediaType" == "application/vnd.docker.distribution.manifest.list.v2+json" ]]; then
-  log "Multi-arch image found, performing manifest dance"
-  for manifest in $(echo "$manifests" | jq -c '.manifests[]'); do
-    digest="$(echo "$manifest"      | jq -r .digest)"
-    arch="$(echo "$manifest"        | jq -r .platform.architecture)"
-    arch_digest="$(echo "$manifest" | jq -r .digest)"
+  arch_tags=''
+  if [[ "$old_registry" == "$new_registry" ]]; then
+    log "Multi-arch image found: target is in same registry, creating manifest directly"
+    arch_tags="$(echo "$manifests" | jq -r \
+      '.manifests | map("--amend " + env.old_ref + "@" + .digest) | join(" ")')"
+  else
+    log "Multi-arch image found with new registry destination, performing manifest dance"
+    for manifest in $(echo "$manifests" | jq -c '.manifests[]'); do
+      arch_name="$(echo "$manifest"   | jq -r .platform.architecture)"
+      arch_digest="$(echo "$manifest" | jq -r .digest)"
 
-    # Pull existing platform-specific image by sha256
-    docker pull "${old_ref}@${arch_digest}"
+      # Pull existing platform-specific image by sha256
+      docker pull "${old_ref}@${arch_digest}"
 
-    # Retag/push to new repo using platform-specific placeholder tags
-    arch_image="${new_registry}/${new_name}:${new_tag}-${arch}"
-    log "Mapping ${arch} => new ${arch_image}"
-    docker tag "${old_registry}/${old_name}@${arch_digest}" "$arch_image"
-    docker push "$arch_image"
+      # Retag/push to new repo using platform-specific placeholder tags
+      arch_image="${new_registry}/${new_name}:${new_tag}-${arch_name}"
+      log "Mapping ${arch_name} => new ${arch_image}"
+      docker tag "${old_registry}/${old_name}@${arch_digest}" "$arch_image"
+      docker push "$arch_image"
 
-    # Retrieve sha256 of images in new repo
-    new_arch_digest="$(docker inspect "$arch_image" \
-      | jq -r '.[0].RepoDigests[]|select(.|startswith(env.new_registry))' \
-      | grep -Eo 'sha256:[0-9a-f]+')"
-    arch_tags+=" --amend ${new_registry}/${new_name}@${new_arch_digest}"
-  done
+      # Retrieve sha256 of images in new repo
+      new_arch_digest="$(docker inspect "$arch_image" \
+        | jq -r '.[0].RepoDigests[]|select(.|startswith(env.new_registry))' \
+        | grep -Eo 'sha256:[0-9a-f]+')"
+      arch_tags+=" --amend ${new_registry}/${new_name}@${new_arch_digest}"
+    done
+  fi
   docker manifest create "${new_registry}/${new_name}:${new_tag}" ${arch_tags}
   docker manifest push "${new_registry}/${new_name}:${new_tag}"
 
