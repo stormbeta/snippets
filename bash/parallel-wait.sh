@@ -6,7 +6,12 @@ function do-thing {
   echo "Did thing $1"
 }
 
-for i in {1..5}; do
+export MAX_JOBS=4
+
+for i in {1..20}; do
+  while (( $(jobs | wc -l) > $MAX_JOBS )); do
+    sleep 1
+  done
   do-thing $i &
 done
 
