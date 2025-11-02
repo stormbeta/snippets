@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+
+# NOTE: Intended for my personal use, has not been tested on any machines but my own
+#       Use at your own risk!
+
+function log {
+  echo "$@" 1>&2
+}
+
+bootloader_path="/boot/efi/$(</etc/machine-id)"
+# Only clean kernels that are no longer installed
+# Explicitly exclude currently running system just in case
+deletion_list="$(sudo ls "$bootloader_path" \
+  | grep -vP "($(uname -r)|$(eselect kernel list | awk '{print $2}' | tail -n+2 | sed -r 's/linux-//' | paste -sd'|'))")"
+
+set -eo pipefail
+
+# My /boot/efi partition was set a bit too small, so I need to cleanup old kernels every time
+if [[ -z "$deletion_list" ]]; then
+  log "No old kernels in /boot/efi to cleanup"
+else
+  log -e "Cleanup old kernels from /boot/efi:\n${deletion_list}"
+  read -n1 -p "Confirm? Y/n" confirm
+  if [[ "$confirm" == 'n' ]]; then
+    log "Aborting!"
+    exit 1
+  fi
+  #log "sudo rm -r ${deletion_list}"
+  sudo rm -r "${bootloader_path}/${deletion_list}"
+fi
+
+kernel_select="$(eselect kernel list | fzf --print-query -0 | head -n1)"
+if [[ -z "$kernel_select" ]]; then
+  log "No kernel selected!"
+  exit 2
+fi
+
+# TODO: Automate selection of kernel options - it defaults to OpenRC when we need it to use systemd
+log "Upgrading kernel and modules"
+#log "sudo eselect kernel $kernel_select" && exit 0
+sudo eselect kernel set "$kernel_select"
+sudo bash -c 'cd /usr/src/linux && make -j12 && emerge -v @module-rebuild && make modules_install && make install'
+
+# TODO: figure out how to automatically set the new kernel as default in systemd-bootloader when updated

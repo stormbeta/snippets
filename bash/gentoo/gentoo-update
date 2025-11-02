@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+
+# Only sync once a day, even if the script is re-run
+sync_timestamp="$(stat -c %Y /var/db/repos/gentoo/metadata/timestamp.chk)"
+now_timestamp="$(date +%s)"
+diff_time=$((24 * 3600))
+# 2025-06-30: Backtrack options means it'll take longer in some cases but avoids spurious dependency hells
+if (( now_timestamp - sync_timestamp > diff_time )); then
+  echo "[$0]: Syncing first..." 1>&2
+  # TODO: ocassionally run with bdeps?
+   #--with-bdeps=y
+  sudo bash -c 'emerge --sync; time emerge -avuUND --autounmask-backtrack=y --backtrack=30 @world && emerge -a --depclean'
+else
+  sudo bash -c 'time emerge -avuUND --autounmask-backtrack=y --backtrack=30 @world && emerge -a --depclean'
+fi
+
+# More reliable than having Discover do it, and prompts before updating
+echo "Updating flatpaks..."
+flatpak update
+flatpak uninstall --unused
+
+# 2025-06-30 AFAICT this is no longer needed, haven't had any issues in months
+#            It used to get screwed up after kernel update after migrating to ext4
+#sudo bash -c 'chmod 4755 /sbin/unix_chkpwd; sudo dracut --hostonly -f'
