@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -e
+
 # Only sync once a day, even if the script is re-run
 sync_timestamp="$(stat -c %Y /var/db/repos/gentoo/metadata/timestamp.chk)"
 now_timestamp="$(date +%s)"
@@ -7,7 +9,6 @@ diff_time=$((24 * 3600))
 # 2025-06-30: Backtrack options means it'll take longer in some cases but avoids spurious dependency hells
 if (( now_timestamp - sync_timestamp > diff_time )); then
   echo "[$0]: Syncing first..." 1>&2
-  # TODO: ocassionally run with bdeps?
    #--with-bdeps=y
   sudo bash -c 'emerge --sync; time emerge -avuUND --autounmask-backtrack=y --backtrack=30 @world && emerge -a --depclean'
 else
@@ -15,10 +16,16 @@ else
 fi
 
 # More reliable than having Discover do it, and prompts before updating
-echo "Updating flatpaks..."
+# TODO: Make this and pipx only run at most once a day as well
+echo "Updating flatpaks..." 1>&2
 flatpak update
 flatpak uninstall --unused
+
+echo "Upgrading pipx python applications..." 1>&2
+pipx upgrade-all
 
 # 2025-06-30 AFAICT this is no longer needed, haven't had any issues in months
 #            It used to get screwed up after kernel update after migrating to ext4
 #sudo bash -c 'chmod 4755 /sbin/unix_chkpwd; sudo dracut --hostonly -f'
+
+# TODO: figure out how to set the new kernel as default in systemd-bootloader when updated
