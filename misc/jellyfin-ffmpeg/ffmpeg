@@ -1,0 +1,82 @@
+#!/bin/bash
+
+# Intel QuickSync, and possibly other hardware, choke when attempting to decode 10-bit H264 video
+# Jellyfin gives us no way to handle this cleanly - turning on HW acceleration AT ALL will break all
+# 10-bit H264 video from playing, even if you turn off H264 HW decoding/encoding entirely
+
+# So the only solution is to intercept calls to H264 10-bit files and rewrite their args
+
+# Assumes jellyfin-bundled ffmpeg from container @ /usr/lib/jellyfin-ffmpeg
+# Assumes this script and the ffprobe wrapper are at /usr/bin/ffmpeg-workaround
+# Assumes env var: JELLFYIN_FFMPEG=/usr/bin/ffmpeg-workaround/ffmpeg
+
+JELLYFIN_FFMPEG_DIR="/usr/lib/jellyfin-ffmpeg"
+FFMPEG_WORKAROUND_DIR="/usr/bin/ffmpeg-workaround"
+
+# Find file arg to inspect
+for arg in "$@"; do
+  case $arg in
+    file:*)
+      jelly_file=${arg#file:}
+      break
+      ;;
+  esac
+done
+
+if "${FFMPEG_WORKAROUND_DIR}/ffprobe" -v error -select_streams v:0 -show_entries stream=codec_name,pix_fmt -of csv=p=0 "$jelly_file"  | grep -qE 'h264.*(yuv444p10le|yuv420p10le)'; then
+  disable_hw=true
+else
+  disable_hw=false
+fi
+
+if [[ "$disable_hw" == "false" ]]; then
+  #echo -e "enabling hwaccel on $jelly_file\n$@" >> /tmp/yes-h264.log
+  exec "${JELLYFIN_FFMPEG_DIR}/ffmpeg" "$@"
+fi
+
+# Rewrite args to disable HW decode
+new_args=()
+skip_next=0
+for arg in "$@"; do
+  if (( skip_next )); then
+    skip_next=0
+    continue
+  fi
+  case "$arg" in
+    # Disable HW decode
+    -hwaccel|-init_hw_device|-filter_hw_device|-vaapi_device|-qsv_device)
+      skip_next=1
+      ;;
+    -codec:v:0)
+      skip_next=1
+      ;;
+    # Remove unnecessary audio-transcode
+    -codec:a:0|-ac|-ab|-ar)
+      skip_next=1
+      ;;
+
+    *vaapi*|*qsv*|*vulkan*|*cuda*|*nvenc*)
+      #drop
+      ;;
+
+    #*yuv420p)
+      #new_args+=("${arg//yuv420p/nv12}")
+      #;;
+    #*nv12)
+      #new_args+=("${arg//nv12/yuv420p}")
+      #;;
+    #*nv12)
+      #new_args+=("${arg//nv12/p010le}")
+      #;;
+
+    *)
+      new_args+=("$arg")
+      ;;
+  esac
+done
+
+# Use HEVC QuickSync acceleration for encoding at least
+new_args+=(-codec:a:0 copy -codec:v:0 hevc_qsv)
+echo "--------" >> /tmp/jellyfin-disable-hwaccel.log
+echo -e "disabling hwaccel on $jelly_file\n${new_args[@]}" >> /tmp/jellyfin-disable-hwaccel.log
+exec "${JELLYFIN_FFMPEG_DIR}/ffmpeg" "${new_args[@]}"
