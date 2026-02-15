@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+
+function log {
+  echo "$@" 1>&2
+}
+
+function deletion-candidates {
+  local _path="$1"
+  active_kernels="$(eselect kernel list | awk '{print $2}' | tail -n+2 | sed -r 's/linux-//' | paste -sd'|')"
+  log "ACTIVE: ${active_kernels}"
+  sudo ls "$1" \
+    | grep -vP "(linux|$(uname -r)|${active_kernels})" \
+    | grep -E '\.(img|efi)$' \
+    | grep -v 'amd-uc.img'
+}
+
+function cleanup-kernels {
+  local _path="$1"
+  local deletion_list="$(deletion-candidates "$_path")"
+  if [[ -z "$deletion_list" ]]; then
+    log "No old kernels in ${_path} to cleanup"
+  else
+    log -e "Cleanup old kernels from ${_path}:\n${deletion_list}"
+    echo ''
+    for p in $deletion_list; do
+      echo -e "\nsudo rm -r \"${_path}/$p\""
+      read -n1 -p "Confirm? Y/n" confirm
+      if [[ "$confirm" == 'n' ]]; then
+        log "Aborting!"
+        exit 1
+      fi
+      sudo rm -r "${_path}/$p"
+    done
+  fi
+}
+
+# Only clean kernels that are no longer installed
+# Explicitly exclude currently running system just in case
+log "Running kernel: $(uname -r)"
+#old_bootloader_path="/boot/efi/$(</etc/machine-id)"
+#cleanup-kernels "$old_bootloader_path"
+cleanup-kernels /usr/src
+cleanup-kernels /boot/efi/EFI/Gentoo
+
+set -eo pipefail
+
+# TODO: This is a bit awkward, maybe don't bother with fzf
+kernel_select="$(eselect kernel list | fzf --print-query -0 | head -n1)"
+if [[ -z "$kernel_select" ]]; then
+  log "No kernel selected!"
+  exit 2
+fi
+sudo eselect kernel set "$kernel_select"
+
+log "Forcing kernel config options..."
+(
+  cd /usr/src/linux
+
+  declare -A entries=(
+    ["CONFIG_GENTOO_LINUX"]="y"
+    ["CONFIG_GENTOO_LINUX_UDEV"]="y"
+    ["CONFIG_GENTOO_LINUX_PORTAGE"]="y"
+    ["CONFIG_GENTOO_LINUX_INIT_SYSTEMD"]="y"
+    ["CONFIG_GENTOO_LINUX_INIT_SCRIPT"]="n"
+    ["CONFIG_GENTOO_KERNEL_SELF_PROTECTION"]="y"
+    ["CONFIG_GENTOO_PRINT_FIRMWARE_INFO"]="n"
+    # 2026-01-12: For some reason, cachyos-sources package is defaulting all debug opts on
+    #             resulting in an excessively large and slower kernel (>600MB!)
+    ["CONFIG_DEBUG_KERNEL"]="n"
+    ["CONFIG_DEBUG_INFO"]="n"
+    ["CONFIG_DEBUG_INFO_DWARF5"]="n"
+    ["CONFIG_DEBUG_INFO_BTF"]="n"
+    ["CONFIG_DEBUG_INFO_BTF_MODULES"]="n"
+  )
+
+  cp .config /tmp/.config
+
+  target='/tmp/.config'
+  for opt in "${!entries[@]}"; do
+      replacement="${opt}=${entries[$opt]}"
+      if grep -q "^${opt}=" "$target"; then
+          sed -i "s|^${opt}=.*|${replacement}|" "$target"
+      else
+          printf '%s\n' "$replacement" >> "$target"
+      fi
+  done
+  sudo cp /tmp/.config .config
+)
+
+# TODO: Automate selection of kernel options - it defaults to OpenRC when we need it to use systemd
+log "Upgrading kernel and modules"
+#log "sudo eselect kernel $kernel_select" && exit 0
+sudo bash -c 'cd /usr/src/linux && make -j12 && emerge -v @module-rebuild && make modules_install && make install'
