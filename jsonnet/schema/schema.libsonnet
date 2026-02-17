@@ -126,18 +126,21 @@ local
 
   // Functions to wrap data in vdata structure
   bind:: {
+    // Unused
     // schema:: schema -> VDATA -> VDATA
-    schema:: function(schema, vdata)
-      vdata + $.validate(vdata, schema),
+    //schema:: function(schema, vdata)
+      //vdata + $.validate(vdata, schema),
 
+    // Huh - apparently also unused now?
     // fieldName:: VDATA -> string -> VDATA
-    fieldName:: function(vdata, field)
-      (if field in vdata then { value: field } else {}) + {
-        errors+: [],
-        context: vdata.context + [{ type: 'field', value: field }],
-      },
+    //fieldName:: function(vdata, field)
+      //(if field in vdata then { value: field } else {}) + {
+        //errors+: [],
+        //context: vdata.context + [{ type: 'field', value: field }],
+      //},
 
-    // fieldValue:: VDATA -> string -> VDATA
+    // Wrap value of field with field name as context
+    // VDATA(vdata.value[field])
     fieldValue: function(vdata, field)
       (if field in vdata.value then { value: vdata.value[field] } else {}) +
       {
@@ -146,6 +149,8 @@ local
       },
 
     // index:: VDATA -> integer -> VDATA
+    // Wrap array element with index as context
+    // VDATA(vdata.value[index])
     index:: function(vdata, index) {
       value: vdata.value[index],
       errors+: [],
@@ -158,6 +163,7 @@ local
     //    value has already been validated and any errors collected
 
     // array:: [VDATA] -> VDATA
+    // Assume every element of array has already been wrapped, and wrap array itself as VDATA struct
     array:: function(vdata_array) {
       // TODO: handle Optional correctly in arrays
       //       will probably need to convert to mapWithIndex
@@ -166,6 +172,7 @@ local
     },
 
     // object:: {KEY: VDATA ...} -> VDATA
+    // Assume every value has already been wrapped, and wrap object itself as VDATA struct
     object:: function(vdata_map) {
       value+: {
         [field]: vdata_map[field].value
@@ -262,6 +269,13 @@ local
   // TODO: Improve error output, especially if used for larger structural differences
   //       Might consider rending schemas as actual formatted json
   // Check data against all provided schemas, and return the result of the first one that matches (or error if none)
+  // TODO: If both fail, which error output do we show? Right now it only shows the short-form schemaDescription which isn't terribly useful...
+  // TODO: Alternatively, for meta operators like this we could allow setting schemaDescription as a full-blown object, detect that, and generate additional debugging information
+  // E.g. we define and register ACTUAL types
+  // ... Though that's getting a bit into the weeds yeah?
+  // At least as far as what I'm trying to do with work
+
+  //
   Either:: function(schemas)
     function(vdata)
       local results = std.map(
@@ -362,6 +376,22 @@ local
             })
           else
             {},
+
+  // @fields: ArrayOf('string')
+  // TODO: Not super useful to be honest, for the same reason as Either and All
+  ExclusiveOr:: function(fields)
+    function(vdata)
+    local present = [field for std.objectFields(vdata.value) if field in fields];
+    vdata { schemaDescription: "ExclusiveOr(%s)" % std.join(',', fields) } +
+    if !('value' in vdata) then $.withMissingError
+      else if !std.isObject(vdata.value) then
+        $.withError("Can't check field exclusivity on non-object value!")
+      else
+        if std.length(present) != 1 then
+          $.withError("Mutually exclusive fields present: " + std.join(',', present))
+          else
+            {}
+  ,
 
   HasNamedEntry:: function(match, key='name')
     local name = match[key];
