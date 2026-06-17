@@ -1,19 +1,20 @@
 #!/usr/bin/env bash
 
-# NOTE: This only manages virtualenvs, not the python runtime itself
+#NOTE: This only manages virtualenvs, not the python runtime itself
 
 # Supported frameworks in order of precedence:
+# * uv
 # * poetry
 # * pipenv
 # * plain requirements.txt
 
-# Version 1.0.2
+# Version 1.1.0
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   if [[ "$1" == "update" ]]; then
     set -o pipefail
     cp "$0" /tmp/pyw.backup
-    curl -sL https://raw.githubusercontent.com/stormbeta/snippets/master/python/pyw/pyw -o "$0" && chmod +x "$0"
+    #git archive --remote=ssh:///pyw.git "${2:-master}" pyw | tar -xO > "$0"
     if [[ $? -ne 0 ]]; then
       echo "pyw update failed!" 1>&2
       cp /tmp/pyw.backup "$0"
@@ -38,9 +39,7 @@ fi
 deactivate 1>&2 &>/dev/null || true
 
 #Default to system python, but script name can indicate explicit version
-# TODO: extract from pyproject.toml if present?
 pyw_name="$(basename "${BASH_SOURCE[0]}")"
-pyw_dir="$(dirname "${BASH_SOURCE[0]}")"
 if [[ "$pyw_name" != 'pyw' ]]; then
   PY_VERSION="$(echo "$pyw_name" | sed 's/^pyw//')"
 else
@@ -49,96 +48,95 @@ fi
 
 echo "Python version to use: ${PY_VERSION}"
 
+if [[ -n "$1" ]]; then
+  PYW_PROJECT="$1"
+else
+  PYW_PROJECT="$(basename "$(pwd)")"
+fi
 
-function venv_workdir {
-  if [[ -n "$1" ]]; then
-    pyw_project="$1"
+echo "virtualenv project: ${PYW_PROJECT}" 1>&2
+
+#TODO: Is there an official virtualenv variable for this?
+if [[ -n "${WORKDIR_OVERRIDE}" ]]; then
+  PYW_WORKDIR="${WORKDIR_OVERRIDE}/${PYW_PROJECT}"
+else
+  PYW_WORKDIR="${HOME}/.virtualenvs/${PYW_PROJECT}"
+fi
+
+PYW_INSTALL_LOG="./pip_install.log"
+
+function __pip-min-version {
+  #pip version is at least X
+  [[ "$(pip --version | grep -Eo '[0-9]' | head -n1)" -ge $1 ]]
+}
+
+function pip-install {
+  if __pip-min-version 6; then
+    #Disable frivolous and obnoxious version warning introduced in pip 6.x
+    pip --disable-pip-version-check --log "${PYW_INSTALL_LOG}" install "$@"
   else
-    # TODO: avoid readlink as it won't work on macOS out-of-the-box
-    pyw_project="$(basename "$(readlink -f "$pyw_dir")")"
-  fi
-  echo "${HOME}/.virtualenvs/${pyw_project}"
-}
-
-function venv_check {
-  local pyw_workdir="${1:-"$(venv_workdir)"}"
-  if [[ -x "${pyw_workdir}/bin/python" ]]; then
-    if ! ${pyw_workdir}/bin/python --version 2>&1 | grep "^Python ${PY_VERSION}"; then
-      echo "Current virtualenv at ${pyw_workdir} doesn't match requested python version!" 1>&2
-      echo "Wiping out virtualenv and recreating..."
-      rm -rf "${pyw_workdir}"
-    fi
+    pip --log "${PYW_INSTALL_LOG}" install "$@"
   fi
 }
 
-function venv_activate {
-  local pyw_workdir="${1:-"$(venv_workdir)"}"
-  if ! source "${pyw_workdir}/bin/activate" 2>/dev/null; then
-    if ! virtualenv "${pyw_workdir}" --python="python${PY_VERSION}"; then
-      echo "Python ${PY_VERSION} not found or had errors - aborting!" 1>&2
-      return 3
-    fi
-    source "${pyw_workdir}/bin/activate"
+export PIP_CONFIG_FILE="${PYW_WORKDIR}/pip.conf"
+
+if [[ -x "${PYW_WORKDIR}/bin/python" ]]; then
+  if ! "${PYW_WORKDIR}/bin/python" --version 2>&1 | grep -q "^Python ${PY_VERSION}"; then
+    echo "Current virtualenv at ${PYW_WORKDIR} doesn't match requested python version!" 1>&2
+    echo "Wiping out virtualenv and recreating..." 1>&2
+    rm -rf "${PYW_WORKDIR}"
+  fi
+fi
+
+function __venv-create {
+  if command -v uv &>/dev/null; then
+    uv venv "${PYW_WORKDIR}" --python "python${PY_VERSION}" || return 3
+  elif command -v virtualenv &>/dev/null; then
+    virtualenv "${PYW_WORKDIR}" --python="python${PY_VERSION}" || return 3
+  else
+    echo "Neither uv nor virtualenv found - aborting!" 1>&2
+    return 3
   fi
 }
 
-function venv_install {
-  local pyw_workdir="${1:-"$(venv_workdir)"}"
-  local pyw_install_log="./pip_install.log"
-  function __pip-min-version {
-    #pip version is at least X
-    [[ "$(pip --version | grep -Eo '[0-9]' | head -n1)" -ge $1 ]]
-  }
-  # TODO: Is this workaround still needed?
-  function pip-install {
-    if __pip-min-version 6; then
-      #Disable frivolous and obnoxious version warning introduced in pip 6.x
-      pip --disable-pip-version-check --log ${pyw_install_log} install "$@"
-    else
-      pip --log ${pyw_install_log} install "$@"
-    fi
-  }
-  echo "Running pip install from requirements.txt... (output in ${pyw_install_log})" 1>&2
-  #Can't use exit in a sourced file as it will terminate the outer shell
-  pip-install --requirement requirements.txt --quiet || return 1
-  if [[ -f requirements_dev.txt ]]; then
-    pip-install --requirement requirements_dev.txt --quiet || return 1
-  fi
-  echo "requirements.txt installed successfully!" 1>&2
-}
+# This intentionally overrides pipenv's default behavior
+# By default, pipenv creates a hashed virtualenv dir which is unnecessary and obnoxious
+if ! source "${PYW_WORKDIR}/bin/activate" 2>/dev/null; then
+  __venv-create || return $?
+  source "${PYW_WORKDIR}/bin/activate"
+fi
 
-# Use poetry first if available, otherwise fallback to pipenv, then fallback to requirements.txt
-# TODO: Add flit support? Possibly drop pipenv support
-if [[ -f poetry.lock && -f pyproject.toml ]]; then
+if [[ -f uv.lock && -f pyproject.toml ]]; then
+  echo "[uv detected]" 1>&2
+  if ! command -v uv &>/dev/null; then
+    echo "Project uses uv, but uv not installed / not on PATH" 1>&2
+    return 5
+  fi
+  UV_PROJECT_ENVIRONMENT="${PYW_WORKDIR}" uv sync
+
+elif [[ -f poetry.lock && -f pyproject.toml ]]; then
   echo "[poetry detected]" 1>&2
-  if ! command -v poetry &> /dev/null; then
+  if ! command -v poetry &>/dev/null; then
     echo "Project uses poetry, but poetry not installed / not on PATH, installing via pip..." 1>&2
     pip install poetry
   fi
-  function venv_workdir {
-    poetry env info --path
-  }
-  function venv_install {
-    poetry install && venv_activate
-  }
+  poetry install
 
 elif [[ -f Pipfile ]]; then
-  if command -v pipenv &> /dev/null; then
-    function venv_install {
-      pipenv install && pipenv install --dev
-      exit $?
-    }
+  if command -v pipenv &>/dev/null; then
+    pipenv install && pipenv install --dev
   else
     echo "Pipfile found, but pipenv not installed or not in PATH" 1>&2
     return 4
   fi
 
 elif [[ -f requirements.txt ]]; then
-  echo "Using plain requirements.txt" 1>&2
+  echo "Running pip install... (output in ${PYW_INSTALL_LOG})" 1>&2
+  #Can't use exit in a sourced file as it will terminate the outer shell
+  pip-install --requirement requirements.txt --quiet || return 1
+  if [[ -f test_requirements.txt ]]; then
+    pip-install --requirement test_requirements.txt --quiet || return 1
+  fi
+  echo "requirements.txt installed successfully!" 1>&2
 fi
-
-pyw_workdir="$(venv_workdir)"
-export PIP_CONFIG_FILE="${pyw_workdir}/pip.conf"
-venv_check "$pyw_workdir"
-venv_activate "$pyw_workdir"
-venv_install "$pyw_workdir"
