@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+
+# Pick a Claude session with fzf and resume it.
+
+# TODO: colorize fields
+
+CLAUDE_PROJECTS="$HOME/.claude/projects"
+PROJECT_ROOTS=(
+  "$HOME/worktrees"
+)
+
+if [ -d ".claude" ]; then
+  query="$(basename "$PWD")$1"
+else
+  query="$1"
+fi
+
+# Collect project dirs and compute max path width (no jq needed)
+readarray -t proj_dirs < <(
+  find "${PROJECT_ROOTS[@]}" -maxdepth 4 -name ".claude" -type d 2>/dev/null \
+    | sed 's|/.claude$||'
+)
+
+max_path=0
+for proj in "${proj_dirs[@]}"; do
+  rel_proj="~/${proj#$HOME/}"
+  (( ${#rel_proj} > max_path )) && max_path=${#rel_proj}
+done
+
+# Stream sessions into fzf in parallel
+selection=$(
+  {
+    for proj in "${proj_dirs[@]}"; do
+      (
+        mangled=$(echo "$proj" | sed 's|/|-|g')
+        session_dir="$CLAUDE_PROJECTS/$mangled"
+        [ -d "$session_dir" ] || exit 0
+
+        for jsonl in "$session_dir"/*.jsonl; do
+          [ -f "$jsonl" ] || continue
+          session_id=$(basename "$jsonl" .jsonl)
+          session_name=$(jq -r 'select(.type=="agent-name") | .agentName // empty' "$jsonl" 2>/dev/null | head -1)
+          if [ -z "$session_name" ]; then
+            session_name=$(jq -rn 'first(inputs | select(.type=="ai-title")) | .aiTitle // empty' "$jsonl" 2>/dev/null | head -1)
+          fi
+          [ -n "$session_name" ] || session_name="$session_id"
+          rel_proj="~/${proj#$HOME/}"
+          printf '%s\t%s\t%-*s  %s\n' "$proj" "$session_id" "$max_path" "$rel_proj" "$session_name"
+        done
+      ) &
+    done
+    wait
+  } | fzf --with-nth=3 --delimiter='\t' --prompt="Claude session> " --query="$query"
+)
+
+[ -z "$selection" ] && exit 0
+
+proj=$(echo "$selection" | cut -f1)
+session_id=$(echo "$selection" | cut -f2)
+
+cd "$proj" && exec claude --resume "$session_id"
