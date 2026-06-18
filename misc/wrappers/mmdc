@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+
+# Mermaid-CLI wrapper, as it has quite obnoxious system dependencies
+# TODO: Use podman if available?
+
+exec docker run --rm \
+  -v /tmp:/tmp \
+  -v "$PWD":/data \
+  minlag/mermaid-cli "$@"
