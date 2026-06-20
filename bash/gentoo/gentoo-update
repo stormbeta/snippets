@@ -2,6 +2,14 @@
 
 set -e
 
+# Packages to exclude from update (e.g. "dev-lang/rust")
+EXCLUDED_PACKAGES=()
+
+exclude_flags=""
+for pkg in "${EXCLUDED_PACKAGES[@]}"; do
+  exclude_flags+=" --exclude ${pkg}"
+done
+
 # Only sync once a day, even if the script is re-run
 sync_timestamp="$(stat -c %Y /var/db/repos/gentoo/metadata/timestamp.chk)"
 now_timestamp="$(date +%s)"
@@ -9,10 +17,9 @@ diff_time=$((24 * 3600))
 # 2025-06-30: Backtrack options means it'll take longer in some cases but avoids spurious dependency hells
 if (( now_timestamp - sync_timestamp > diff_time )); then
   echo "[$0]: Syncing first..." 1>&2
-   #--with-bdeps=y
-  sudo bash -c 'emerge --sync; time emerge -avuUND --autounmask-backtrack=y --backtrack=30 @world && emerge -a --depclean'
+  sudo bash -c "emerge --sync; time emerge -avuUND --autounmask-backtrack=y --backtrack=30${exclude_flags} @world && emerge -a --depclean"
 else
-  sudo bash -c 'time emerge -avuUND --autounmask-backtrack=y --backtrack=30 @world && emerge -a --depclean'
+  sudo bash -c "time emerge -avuUND --autounmask-backtrack=y --backtrack=30${exclude_flags} @world && emerge -a --depclean"
 fi
 
 echo "Cleanup check..." 1>&2
@@ -33,8 +40,10 @@ echo "Updating flatpaks..." 1>&2
 flatpak update
 flatpak uninstall --unused
 
-echo "Upgrading pipx python applications..." 1>&2
-pipx upgrade-all
+# 2026-03-22 pipx deprecated
+echo "Upgrading uvx python applications..." 1>&2
+uv tool upgrade --all
+#pipx upgrade-all
 
 # 2025-06-30 AFAICT this is no longer needed, haven't had any issues in months
 #            It used to get screwed up after kernel update after migrating to ext4

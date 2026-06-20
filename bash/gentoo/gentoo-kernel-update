@@ -26,8 +26,8 @@ function cleanup-kernels {
       echo -e "\nsudo rm -r \"${_path}/$p\""
       read -n1 -p "Confirm? Y/n" confirm
       if [[ "$confirm" == 'n' ]]; then
-        log "Aborting!"
-        exit 1
+        log "Skipping!"
+        break
       fi
       sudo rm -r "${_path}/$p"
     done
@@ -87,7 +87,6 @@ log "Forcing kernel config options..."
   sudo cp /tmp/.config .config
 )
 
-# TODO: Automate selection of kernel options - it defaults to OpenRC when we need it to use systemd
 log "Upgrading kernel and modules"
 #log "sudo eselect kernel $kernel_select" && exit 0
 sudo bash -c 'cd /usr/src/linux && make -j12 && emerge -v @module-rebuild && make modules_install && make install'
