@@ -73,9 +73,10 @@ log "Forcing kernel config options..."
     ["CONFIG_DEBUG_INFO_BTF_MODULES"]="n"
   )
 
-  cp .config /tmp/.config
+  target="$(mktemp)"
+  trap 'rm -f "$target"' EXIT
+  cp .config "$target"
 
-  target='/tmp/.config'
   for opt in "${!entries[@]}"; do
       replacement="${opt}=${entries[$opt]}"
       if grep -q "^${opt}=" "$target"; then
@@ -84,7 +85,13 @@ log "Forcing kernel config options..."
           printf '%s\n' "$replacement" >> "$target"
       fi
   done
-  sudo cp /tmp/.config .config
+
+  # Only replace .config if something changed (faster re-run if just updating opts)
+  if cmp -s "$target" .config; then
+    log "Kernel config already has forced options, leaving .config untouched"
+  else
+    sudo cp "$target" .config
+  fi
 )
 
 log "Upgrading kernel and modules"
