@@ -44,8 +44,19 @@ cleanup-kernels /boot/efi/EFI/Gentoo
 
 set -eo pipefail
 
-# TODO: This is a bit awkward, maybe don't bother with fzf
-kernel_select="$(eselect kernel list | fzf --print-query -0 | head -n1)"
+# Newest kernel first so Enter picks it by default; fzf exits non-zero on Esc/no match
+running="linux-$(uname -r)"
+kernel_select="$(
+  eselect kernel list \
+    | awk '/^ *\[[0-9]+\]/ { print $2 "\t" ($3 == "*" ? "(selected)" : "") }' \
+    | sort -V -r -k1,1 \
+    | awk -F'\t' -v run="$running" '{ print $1 "\t" $2 ($1 == run ? " (running)" : "") }' \
+    | fzf --height=~40% --layout=reverse --border --no-sort --cycle \
+          --delimiter='\t' --accept-nth=1 \
+          --prompt='kernel> ' \
+          --header="Select kernel to build (running: $(uname -r)) - Enter: select, Esc: abort" \
+          --select-1 --exit-0
+)" || true
 if [[ -z "$kernel_select" ]]; then
   log "No kernel selected!"
   exit 2
@@ -57,6 +68,7 @@ log "Forcing kernel config options..."
   cd /usr/src/linux
 
   declare -A entries=(
+    # Gentoo-specific options when using Gentoo kernels
     ["CONFIG_GENTOO_LINUX"]="y"
     ["CONFIG_GENTOO_LINUX_UDEV"]="y"
     ["CONFIG_GENTOO_LINUX_PORTAGE"]="y"
@@ -73,18 +85,29 @@ log "Forcing kernel config options..."
     ["CONFIG_DEBUG_INFO_BTF_MODULES"]="n"
   )
 
+  # 2026-11-02: Disable unused drivers
+  for sym in DRM_AMDGPU DRM_RADEON DRM_I915 DRM_XE DRM_NOUVEAU \
+           SND_SOC IIO INFINIBAND SCSI_LOWLEVEL \
+           INPUT_TOUCHSCREEN STAGING PCMCIA FIREWIRE NFC CAN ATM FUSION \
+           GFS2_FS OCFS2_FS CEPH_FS AFS_FS; do
+           # MEDIA_SUPPORT: webcam?
+    entries["CONFIG_${sym}"]="n"
+  done
+  # Disable non-Intel network drivers (unused)
+  while read -r sym; do
+    entries["$sym"]="n"
+  done < <(grep -oP '^CONFIG_(NET|WLAN)_VENDOR_(?!INTEL=)[A-Z0-9_]+(?==y)' .config)
+
   target="$(mktemp)"
-  trap 'rm -f "$target"' EXIT
+  trap 'sudo rm -f "$target"' EXIT
   cp .config "$target"
 
   for opt in "${!entries[@]}"; do
-      replacement="${opt}=${entries[$opt]}"
-      if grep -q "^${opt}=" "$target"; then
-          sed -i "s|^${opt}=.*|${replacement}|" "$target"
-      else
-          printf '%s\n' "$replacement" >> "$target"
-      fi
+    sed -i "/^${opt}=/d; /^# ${opt} is not set\$/d" "$target"
+    printf '%s=%s\n' "$opt" "${entries[$opt]}" >> "$target"
   done
+
+  sudo make KCONFIG_CONFIG="$target" olddefconfig
 
   # Only replace .config if something changed (faster re-run if just updating opts)
   if cmp -s "$target" .config; then
@@ -95,5 +118,4 @@ log "Forcing kernel config options..."
 )
 
 log "Upgrading kernel and modules"
-#log "sudo eselect kernel $kernel_select" && exit 0
 sudo bash -c 'cd /usr/src/linux && make -j12 && emerge -v @module-rebuild && make modules_install && make install'
